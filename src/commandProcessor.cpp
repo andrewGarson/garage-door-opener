@@ -1,20 +1,14 @@
 #include "commandProcessor.h"
 
-uint8_t CommandProcessor::readLine() {
-  uint8_t bytesRead = 0;
-  uint8_t next = 0;
-  while(client.connected()) {
-    if(client.available() > 0) {
-      next = client.read();
-      if(next == '\n') {
-        break;
-      }
-      commandBuffer[bytesRead] = next;
-      bytesRead++;
-    }
-    delay(1);
+unsigned long CommandProcessor::millisSince(unsigned long start) {
+  unsigned long now = millis();
+  unsigned long diff = 0;
+  if(start <= now) {
+    diff = (now - start);
+  } else {
+    diff = now + (0xFFFFFFFF - start);
   }
-  return bytesRead;
+  return diff;
 }
 
 Command CommandProcessor::readCommand() {
@@ -29,8 +23,14 @@ Command CommandProcessor::readCommand() {
   uint8_t next = 0;
   commandBytesRead = 0;
 
+  unsigned long startTime = millis();
+
   bool commandFinished = false;
   while(client.connected() && !commandFinished){
+    if(millisSince(startTime) > READ_TIMEOUT_MILLIS) {
+      return COMMAND::READ_TIMEOUT;
+    }
+
     if(client.available()) { // returns an int - 0 is falsey
       next = client.read();
       switch(next) {
@@ -57,7 +57,6 @@ Command CommandProcessor::readCommand() {
   }
 
 
-  uint8_t bytesRead = readLine();
   parseCommandBuffer();
   return Command::PARSE_ERROR;
 }
