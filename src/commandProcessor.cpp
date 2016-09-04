@@ -11,43 +11,51 @@ unsigned long CommandProcessor::millisSince(unsigned long start) {
   return diff;
 }
 
-Command CommandProcessor::readCommand() {
+Command CommandProcessor::readCommand(HardwareSerial &Serial) {
 
   // we need to build a timeout into this method 
   // we need to enforce that nonce and digest are both 40 characters
   // in any error case the CommandProcessor doesn't care about cleaning up
   // the state of the socket because the system is going to close it
+  commandBytesRead = 0;
+  nonceBytesRead = 0;
+  digestBytesRead = 0;
 
   uint8_t * buffer = commandBuffer;
-  uint8_t bufferIndex = 0;
-  uint8_t next = 0;
-  commandBytesRead = 0;
+  uint8_t bufferSize = COMMAND_BUFFER_SIZE;
+  uint8_t * bufferIndex = &commandBytesRead;
 
+  uint8_t nextChar = 0;
+  
   unsigned long startTime = millis();
 
   bool commandFinished = false;
   while(client.connected() && !commandFinished){
     if(millisSince(startTime) > READ_TIMEOUT_MILLIS) {
-      return COMMAND::READ_TIMEOUT;
+      return Command::READ_TIMEOUT;
     }
 
     if(client.available()) { // returns an int - 0 is falsey
-      next = client.read();
-      switch(next) {
+      nextChar = client.read();
+      switch(nextChar) {
         case UNIT_SEPARATOR:
           if(buffer == commandBuffer) {
             buffer = nonceBuffer;
+            bufferSize = COMMAND_NONCE_SIZE;
+            bufferIndex = &nonceBytesRead;
           } else {
             buffer = digestBuffer;
+            bufferSize = COMMAND_DIGEST_SIZE;
+            bufferIndex = &digestBytesRead;
           }
-          bufferIndex = 0;
           break;
         case RECORD_SEPARATOR:
           commandFinished = true;
           break;
         default:
-          *(buffer + bufferIndex) = next;
-          bufferIndex++;
+          if(*bufferIndex == bufferSize) { return Command::BUFFER_FULL; }
+          *(buffer + *bufferIndex) = nextChar;
+          (*bufferIndex)++;
       };
     }
     // this serves two purposes
@@ -57,6 +65,18 @@ Command CommandProcessor::readCommand() {
   }
 
 
-  parseCommandBuffer();
+  Serial.print("Command Bytes Read: ");
+  Serial.println(commandBytesRead);
+  Serial.print("Nonce Bytes Read: ");
+  Serial.println(nonceBytesRead);
+  Serial.print("Digest Bytes Read: ");
+  Serial.println(digestBytesRead);
+
+  if(commandBytesRead != 1) { return Command::PARSE_ERROR; }
+  if(commandBuffer[0] == 0) { return Command::OPEN; }
+  if(commandBuffer[0] == 1) { return Command::CLOSE; }
+  if(commandBuffer[0] == 2) { return Command::READ_SENSOR; }
+
+  //parseCommandBuffer();
   return Command::PARSE_ERROR;
 }

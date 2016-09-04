@@ -29,6 +29,7 @@
 
 enum Command {
   PARSE_ERROR,
+  BUFFER_FULL,
   READ_TIMEOUT,
   AUTH_FAILURE,
 
@@ -38,9 +39,12 @@ enum Command {
   CLOSE
 };
 
-const uint8_t COMMAND_BUFFER_SIZE = 40;
-const uint8_t COMMAND_NONCE_SIZE = 40;
-const uint8_t COMMAND_DIGEST_SIZE = 40;
+// These are byte counts, hmacsha1 produces a 20 byte output
+// We require a 20 byte nonce to prevent repeated digests
+//
+const uint8_t COMMAND_BUFFER_SIZE = 20;
+const uint8_t COMMAND_NONCE_SIZE = 20;
+const uint8_t COMMAND_DIGEST_SIZE = 20;
 
 const uint8_t RECORD_SEPARATOR = 0x1E;
 const uint8_t UNIT_SEPARATOR = 0x1F;
@@ -51,15 +55,20 @@ class CommandProcessor
 {
   private:
     WiFiClient& client;
-    void parseCommandBuffer();
+    //void parseCommandBuffer();
     uint8_t commandBuffer[COMMAND_BUFFER_SIZE];
     uint8_t commandBytesRead;
+
     uint8_t nonceBuffer[COMMAND_NONCE_SIZE];
+    uint8_t nonceBytesRead;
+
     uint8_t digestBuffer[COMMAND_DIGEST_SIZE];
+    uint8_t digestBytesRead;
+
     unsigned long millisSince(unsigned long);
   public:
     CommandProcessor(WiFiClient& _client) : client(_client) { }
-    Command readCommand();
+    Command readCommand(HardwareSerial&);
 };
 
 #endif

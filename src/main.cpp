@@ -112,23 +112,23 @@ void writeDigestToClient(WiFiClient& client, const uint8_t (& digest)[20]) {
  i_key_pad = [0x36 * blocksize] ⊕ key // Where ⊕ is exclusive or (XOR)
  return hash(o_key_pad ∥ hash(i_key_pad ∥ message)) // Where ∥ is concatenation
 */
-void hmac_sha1(uint8_t * message, uint32_t messageLength, uint8_t digest[20]) {
-  // i_key_pad = (i_key_pad | message)
-  uint32_t i = 0;
-  for(; i < messageLength; i++) {
-    i_key_pad[64 + i] = message[i];
-  }
-  // digest = hash(i_key_pad | message)
-  sha1(i_key_pad, messageLength + 64 - 1, digest);
-
-  // o_key_pad = (o_key_pad | hash(i_key_pad | message))
-  i=0;
-  for(;i < 64; i++) {
-    o_key_pad[64 + i] = digest[i];
-  }
-  // digest = hash(o_key_pad | hash(i_key_pad | message))
-  sha1(o_key_pad, 84, digest);
-}
+//void hmac_sha1(uint8_t * message, uint8_t messageLength, uint8_t digest[20]) {
+//  // i_key_pad = (i_key_pad | message)
+//  uint8_t i = 0;
+//  for(; i < messageLength; i++) {
+//    i_key_pad[64 + i] = message[i];
+//  }
+//  // digest = hash(i_key_pad | message)
+//  sha1(i_key_pad, messageLength + 64 - 1, digest);
+//
+//  // o_key_pad = (o_key_pad | hash(i_key_pad | message))
+//  i=0;
+//  for(;i < 64; i++) {
+//    o_key_pad[64 + i] = digest[i];
+//  }
+//  // digest = hash(o_key_pad | hash(i_key_pad | message))
+//  sha1(o_key_pad, 84, digest);
+//}
 
 
 void setup() {
@@ -155,6 +155,7 @@ void setup() {
   server.begin();
 
   pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, HIGH);
   //  pinMode(buttonPin, INPUT_PULLUP);
   pinMode(triggerPin, OUTPUT);
   pinMode(echoPin, INPUT);
@@ -164,9 +165,9 @@ void setup() {
 
 
 void loop() {
-  discovery.broadcast(WiFi.localIP());
-  delay(3000);
-  return;
+  //discovery.broadcast(WiFi.localIP());
+  //delay(3000);
+  //return;
 
   WiFiClient client = server.available();
 
@@ -176,30 +177,46 @@ void loop() {
     CommandProcessor commandProcessor(client);
 
     while(client.connected()) {
-      Command command = commandProcessor.readCommand();
+      Command command = commandProcessor.readCommand(Serial);
       switch(command) {
         case Command::PARSE_ERROR:
-          Serial.println("Parse Error");
+        case Command::READ_TIMEOUT:
+        case Command::BUFFER_FULL:
+          Serial.print("Read Command Failed: ");
+          Serial.println(command);
+          client.stop();
+          break;
+        case Command::OPEN:
+          Serial.println("OPEN");
+          digitalWrite(ledPin, LOW);
+          client.stop();
+          break;
+        case Command::CLOSE:
+          Serial.println("CLOSE");
+          digitalWrite(ledPin, HIGH);
+          client.stop();
+          break;
+        case Command::READ_SENSOR:
+          Serial.println("READ");
+          client.stop();
           break;
         default:
           Serial.println("Default");
+          //hmac_sha1(lineBuffer, bytesRead, digest);
+
+          for(uint8_t x = 0; x < bytesRead; x++) { Serial.write(lineBuffer[x]); }
+          Serial.println();
+
+          writeDigestToClient(client, digest);
+
+          if(bytesRead >= 4 && 
+              lineBuffer[0] == 'e' && lineBuffer[1] == 'x' && lineBuffer[2] == 'i' && lineBuffer[3] == 't') {
+            client.write("GOODBYE\n");
+            client.flush();
+            client.stop();
+          }
           break;
       }
-
-      hmac_sha1(lineBuffer, bytesRead, digest);
-
-      for(uint8_t x = 0; x < bytesRead; x++) { Serial.write(lineBuffer[x]); }
-      Serial.println();
-
-      writeDigestToClient(client, digest);
-
-      if(bytesRead >= 4 && 
-          lineBuffer[0] == 'e' && lineBuffer[1] == 'x' && lineBuffer[2] == 'i' && lineBuffer[3] == 't') {
-        client.write("GOODBYE\n");
-        client.flush();
-        client.stop();
-      }
-
       delay(0); // yield to other processes on the board
     }
     Serial.println("Client disconnected");
