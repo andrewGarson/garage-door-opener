@@ -2,73 +2,46 @@
 #define __COMMANDPROCESSOR_H_INCLUDED__
 
 #include <ESP8266WiFi.h>
+#include "protocol.h"
+#include "hmac.h"
 
-
-/*
- * Command Protocol:
- *
- * Commands are a simple string value for now, we don't need to send any
- * parameters in at this point
- *
- * The expected format is as follows: Plus (+) represents concatenation
- * command+UNIT_SEPARATOR+nonce+UNIT_SEPARATOR+digest+RECORD_SEPARATOR
- *
- * UNIT_SEPARATOR and RECORD_SEPARATOR are the expected values from the C0 
- * control set
- *
- * command nonce and digest are NON null-terminated character arrays 
- *
- * nonce must be 40 chars long and non repeating
- *
- * digest must be the result of running HmacSHA1 against the string
- * command+UNIT_SEPARATOR+nonce+UNIT_SEPARATOR
- * encoded as a hexicimal string. The output of HmacSHA1 is a 20 byte
- * digest, which will require 40 chars to represent in HEX
- *
- */
-
-enum Command {
-  PARSE_ERROR,
-  BUFFER_FULL,
-  READ_TIMEOUT,
-  AUTH_FAILURE,
-
-  PAIR,
-  READ_SENSOR,
-  OPEN,
-  CLOSE
+//TODO: this is only a dev key, move it to SPIFFS 
+const Block KEY = {
+  0x3f, 0x42, 0x27, 0x56, 0xa5, 0x27, 0xbe, 0x91, 
+  0x3c, 0x56, 0x55, 0x39, 0x0f, 0x23, 0x11, 0x90, 
+  0xb8, 0x81, 0x65, 0x0e, 0x76, 0x5e, 0x48, 0xb7, 
+  0x99, 0x92, 0xe0, 0xbc, 0x32, 0xff, 0xbe, 0x12, 
+  0x19, 0x4a, 0x8b, 0x6f, 0xf0, 0x78, 0xdf, 0xcb, 
+  0xf7, 0xde, 0x36, 0x33, 0xcf, 0xa0, 0x50, 0xb4, 
+  0xa8, 0xb4, 0x8d, 0xc0, 0x97, 0x62, 0x01, 0x38, 
+  0x91, 0x94, 0xec, 0x11, 0xc5, 0x65, 0x4f, 0xd9
 };
 
-// These are byte counts, hmacsha1 produces a 20 byte output
-// We require a 20 byte nonce to prevent repeated digests
+enum CommandError {
+  SUCCESS,
+  READ_TIMEOUT,
+  AUTH_FAILURE
+};
 //
-const uint8_t COMMAND_BUFFER_SIZE = 20;
-const uint8_t COMMAND_NONCE_SIZE = 20;
-const uint8_t COMMAND_DIGEST_SIZE = 20;
+//  PAIR,
+//  READ_SENSOR,
+//  OPEN,
+//  CLOSE
+//};
 
-const uint8_t RECORD_SEPARATOR = 0x1E;
-const uint8_t UNIT_SEPARATOR = 0x1F;
-
-const uint16_t READ_TIMEOUT_MILLIS = 60000;
+struct Command {
+  Message message;
+  Digest digest;
+};
 
 class CommandProcessor
 {
   private:
     WiFiClient& client;
-    //void parseCommandBuffer();
-    uint8_t commandBuffer[COMMAND_BUFFER_SIZE];
-    uint8_t commandBytesRead;
-
-    uint8_t nonceBuffer[COMMAND_NONCE_SIZE];
-    uint8_t nonceBytesRead;
-
-    uint8_t digestBuffer[COMMAND_DIGEST_SIZE];
-    uint8_t digestBytesRead;
-
     unsigned long millisSince(unsigned long);
   public:
     CommandProcessor(WiFiClient& _client) : client(_client) { }
-    Command readCommand(HardwareSerial&);
+    CommandError readCommand(Command&, HardwareSerial&);
 };
 
 #endif
