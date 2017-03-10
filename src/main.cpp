@@ -2,80 +2,54 @@
   D0 is GPIO16 is the red led on the board
 */
 
-#include <ESP8266WiFi.h>
+/*
+ * On Startup, if we can't connect to a network, enter AP mode and get network credentials
+ *
+ */
+
 #include <ESP.h>
-#include "FS.h"
+#include <ESP8266WiFi.h>
 
-#include "protocol.h"
-#include "discovery.h"
-#include "commandProcessor.h"
+#include <ESP8266WiFi.h>
 
-WiFiServer server(23);
-char network[] = "Ansible";
-char password[] = "jk4m3lD6jk4m3";
-int wifiStatus = WL_IDLE_STATUS; 
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 
-void setupSerial() {
+#include <PubSubClient.h>
+
+const char* mqttServer = "192.168.1.2";
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void setup() {
   Serial.begin(115200);
   Serial.println("Serial is connected");
 
   Serial.print("SDK Version: ");
   Serial.println(ESP.getSdkVersion());
+
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("GarageOpenerAP", "thisisthepassword");
+
+  client.setServer(mqttServer, 1883);
+  client.setCallback(callback);
 }
 
-void setupFS(){
-  SPIFFS.begin();
-  // need to call SPIFFS.end() before doing OTA updates if I ever do that
-}
 
-void setupWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(network, password);
-  WiFi.printDiag(Serial);
-
-  while (wifiStatus != WL_CONNECTED) {
-    Serial.print("Attempting to connect to network: ");
-    Serial.println(network);
-    wifiStatus = WiFi.status();
-    delay(5000);
-  }
-
-  Serial.print("Local IP: ");
-  Serial.println(WiFi.localIP());
-}
-
-void setupServer() {
-  server.begin();
-}
-
-void setup() {
-  setupSerial();
-  setupFS();
-  setupWiFi();
-  setupServer();
-}
 void loop() {
-
-  WiFiClient client = server.available();
-  if(client) {
-    CommandProcessor processor = CommandProcessor(client);
-    Command command;
-    CommandError error = processor.readCommand(command, Serial);
-    switch(error) {
-      case CommandError::SUCCESS:
-        Serial.println("Success");
-        break;
-      case CommandError::READ_TIMEOUT:
-        Serial.println("Command Read Timeout");
-        break;
-      case CommandError::AUTH_FAILURE:
-        Serial.println("Auth Failure");
-        break;
-    }
-  }
 }
-
-
 
 ///////long debounceMicros = 50000;
 ///////volatile unsigned long lastButtonUp = 0;
