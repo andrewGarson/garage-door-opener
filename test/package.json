@@ -1,0 +1,12 @@
+{
+  "name": "test",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "mqtt": "^2.4.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=0.10.0"
+  }
+}

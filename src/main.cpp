@@ -2,36 +2,18 @@
   D0 is GPIO16 is the red led on the board
 */
 
-/*
- * On Startup, if we can't connect to a network, enter AP mode and get network credentials
- *
- */
-
 #include <ESP.h>
 #include <ESP8266WiFi.h>
 
-#include <ESP8266WiFi.h>
+#include "mqttIO.h"
 
-#include <DNSServer.h>
-#include <ESP8266WebServer.h>
-#include <WiFiManager.h>
+String deviceType = "garageController";
+String deviceId = "";
 
-#include <PubSubClient.h>
+const char*  mqttServer = "192.168.1.2";
+int mqttPort = 1883;
 
-const char* mqttServer = "192.168.1.2";
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-}
+MqttIO mailbox(mqttServer, mqttPort);
 
 void setup() {
   Serial.begin(115200);
@@ -43,12 +25,15 @@ void setup() {
   WiFiManager wifiManager;
   wifiManager.autoConnect("GarageOpenerAP", "thisisthepassword");
 
-  client.setServer(mqttServer, 1883);
-  client.setCallback(callback);
+  deviceId = WiFi.macAddress() + " " + deviceType;
+  Serial.print("Connected,  ");
+  Serial.println(deviceId);
+
+  mailbox.beginAnnouncingPresence("presence", deviceId.c_str(), 30000);
 }
 
-
 void loop() {
+  mailbox.loop();
 }
 
 ///////long debounceMicros = 50000;
