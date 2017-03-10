@@ -9,6 +9,68 @@
 
 #include <PubSubClient.h>
 
+
+template <class T>
+class Dequeue {
+
+  struct Element {
+    T item;
+    Element* previous;
+    Element* next;
+
+    Element(T item, Element* previous, Element* next) {
+      this->item = item;
+      this->previous = previous;
+      this->next = next;
+    }
+  };
+
+  private:
+  int length;
+  Element* front = NULL;
+  Element* back = NULL;
+
+  public: 
+  int size();
+  void pushFront(T item);
+  T* popFront();
+
+  void pushBack(T item);
+  T* popBack();
+
+  void traverseForwards(void (*callback)(T));
+};
+
+template <class T>
+int Dequeue<T>::size() {
+  return this->length;
+}
+
+template <class T>
+void Dequeue<T>::traverseForwards(void (*callback)(T)){
+  Element* current = front;
+  while(current != NULL){
+    callback(current->item);
+    current = current->next;
+  }
+}
+
+template <class T>
+void Dequeue<T>::pushFront(T item) {
+  Element* oldFront = this->front;
+  Element* e = new Element(item, NULL, this->front);
+
+  this->front = e;
+
+  length++;
+}
+
+struct Message {
+  char* topic;
+  byte* body;
+  unsigned int length;
+};
+
 class MqttIO {
   private:
     WiFiClient espClient;
@@ -35,8 +97,8 @@ class MqttIO {
       client = new PubSubClient(espClient);
       client->setServer(host, port);
       client->setCallback([=](char* topic, byte* payload, int length){
-        this->handleMessage(topic, payload, length);
-      });
+          this->handleMessage(topic, payload, length);
+          });
     }
 
     void send(const char* topic, const char* message);

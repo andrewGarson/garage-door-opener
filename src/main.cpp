@@ -15,12 +15,30 @@ int mqttPort = 1883;
 
 MqttIO mailbox(mqttServer, mqttPort);
 
+
+void runTests() {
+  Dequeue<int> d;
+  d.size();
+  d.pushFront(5);
+  d.pushFront(4);
+  d.pushFront(3);
+  d.pushFront(2);
+  d.pushFront(1);
+  d.pushFront(0);
+
+  d.traverseForwards([=](int item) {
+    Serial.printf("Item %d\n", item);
+  });
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Serial is connected");
 
   Serial.print("SDK Version: ");
   Serial.println(ESP.getSdkVersion());
+
+  runTests();
 
   WiFiManager wifiManager;
   wifiManager.autoConnect("GarageOpenerAP", "thisisthepassword");
