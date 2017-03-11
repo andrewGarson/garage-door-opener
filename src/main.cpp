@@ -26,7 +26,19 @@ void runTests() {
   d.pushFront(1);
   d.pushFront(0);
 
+  d.pushBack(6);
+  d.pushBack(7);
+  d.pushBack(8);
+
+  Serial.println("");
+  Serial.println("Forwards");
   d.traverseForwards([=](int item) {
+    Serial.printf("Item %d\n", item);
+  });
+
+  Serial.println("");
+  Serial.println("Backwards");
+  d.traverseBackwards([=](int item) {
     Serial.printf("Item %d\n", item);
   });
 }

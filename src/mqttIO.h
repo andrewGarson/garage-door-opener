@@ -39,6 +39,7 @@ class Dequeue {
   T* popBack();
 
   void traverseForwards(void (*callback)(T));
+  void traverseBackwards(void (*callback)(T));
 };
 
 template <class T>
@@ -56,11 +57,43 @@ void Dequeue<T>::traverseForwards(void (*callback)(T)){
 }
 
 template <class T>
+void Dequeue<T>::traverseBackwards(void (*callback)(T)){
+  Element* current = back;
+  while(current != NULL){
+    callback(current->item);
+    current = current->previous;
+  }
+}
+
+
+template <class T>
 void Dequeue<T>::pushFront(T item) {
   Element* oldFront = this->front;
   Element* e = new Element(item, NULL, this->front);
 
   this->front = e;
+
+  if(oldFront != NULL) {
+    oldFront->previous = e;
+  } else {
+    this->back = e;
+  }
+
+  length++;
+}
+
+template <class T>
+void Dequeue<T>::pushBack(T item) {
+  Element* oldBack = this->back;
+  Element* e = new Element(item, this->back, NULL);
+
+  this->back = e;
+
+  if(oldBack != NULL) {
+    oldBack->next = e;
+  } else {
+    this->front = e;
+  }
 
   length++;
 }
