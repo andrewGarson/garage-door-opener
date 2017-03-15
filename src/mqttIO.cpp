@@ -1,17 +1,15 @@
 #include "mqttIO.h"
 
-
-
+void Message::print() {
+  Serial.printf("[%s] %s", this->topic, this->payload);
+}
 
 void MqttIO::handleMessage(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
+  Message m(topic, payload, length);
+  this->inbox->pushFront(m);
+  Serial.println("Message Arrived");
+  m.print();
+  Serial.printf("\nDequeue Length: %d\n", this->inbox->size());
 }
 
 boolean MqttIO::reconnect() {
@@ -47,6 +45,15 @@ void MqttIO::loop() {
 
 void MqttIO::send(const char* topic, const char* message) {
   client->publish(topic, message);
+}
+
+bool MqttIO::hasMessages() {
+  //Serial.printf("Checking hasMessages: %s\n", (this->inbox->size() > 0) ? "true" : "false");
+  return this->inbox->size() > 0;
+}
+
+Message MqttIO::receive() {
+  return this->inbox->popBack();
 }
 
 void MqttIO::announcePresence() {

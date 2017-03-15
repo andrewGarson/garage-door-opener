@@ -26,17 +26,17 @@ class Dequeue {
   };
 
   private:
-  int length;
+  int length = 0;
   Element* front = NULL;
   Element* back = NULL;
 
   public: 
   int size();
   void pushFront(T item);
-  T* popFront();
+  T popFront();
 
   void pushBack(T item);
-  T* popBack();
+  T popBack();
 
   void traverseForwards(void (*callback)(T));
   void traverseBackwards(void (*callback)(T));
@@ -83,6 +83,42 @@ void Dequeue<T>::pushFront(T item) {
 }
 
 template <class T>
+T Dequeue<T>::popFront(){
+  Element* first = this->front;
+
+  if(first == NULL){ return T(); }
+
+  Element* second = first->next;
+  if(second != NULL) {
+    second->previous = NULL;
+  } else {
+    this->back = NULL;
+  }
+
+  this->front = second;
+  this->length--;
+  return first->item;
+}
+
+template <class T>
+T Dequeue<T>::popBack(){
+  Element* first = this->back;
+
+  if(first == NULL){ return T(); }
+
+  Element* second = first->previous;
+  if(second != NULL) {
+    second->next = NULL;
+  } else {
+    this->front = NULL;
+  }
+
+  this->back = second;
+  this->length--;
+  return first->item;
+}
+
+template <class T>
 void Dequeue<T>::pushBack(T item) {
   Element* oldBack = this->back;
   Element* e = new Element(item, this->back, NULL);
@@ -100,8 +136,31 @@ void Dequeue<T>::pushBack(T item) {
 
 struct Message {
   char* topic;
-  byte* body;
-  unsigned int length;
+  char* payload;
+
+  Message() {
+    this->topic = new char[1] { '\0' };
+    this->payload = new char[1] { '\0' };
+  }
+  Message(char* topic, byte* payload, unsigned int length) {
+    this->topic = new char[strlen(topic) + 1];
+    strcpy(this->topic, topic);
+
+    this->payload = new char[length + 1];
+    for(int i = 0; i < length; i++) {
+      this->payload[i] = (char)payload[i];
+    }
+    payload[length] = '\0';
+  }
+  Message(char* topic, char* payload) {
+    this->topic = new char[strlen(topic) + 1];
+    strcpy(this->topic, topic);
+
+    this->payload = new char[strlen(payload) + 1];
+    strcpy(this->payload, payload);
+  }
+
+  void print();
 };
 
 class MqttIO {
@@ -113,7 +172,7 @@ class MqttIO {
     long reconnectInterval = 5000;
     boolean reconnect(); 
 
-    boolean shouldAnnouncePresence = false;
+    bool shouldAnnouncePresence = false;
     long lastPresenceAnnounce = 0;
     const char* presenceTopic = "";
     const char* deviceId;
@@ -121,21 +180,23 @@ class MqttIO {
 
     void announcePresence();
 
-    // create send/receive queues 
     void handleMessage(char* topic, byte* payload, unsigned int length); 
 
   public:
 
+    Dequeue<Message>* inbox;
     MqttIO(const char* host, int port) {
+      inbox = new Dequeue<Message>();
       client = new PubSubClient(espClient);
       client->setServer(host, port);
       client->setCallback([=](char* topic, byte* payload, int length){
-          this->handleMessage(topic, payload, length);
-          });
+        this->handleMessage(topic, payload, length);
+      });
     }
 
     void send(const char* topic, const char* message);
-    void receive();
+    bool hasMessages();
+    Message receive();
 
     void beginAnnouncingPresence(const char* presenceTopic, const char* deviceId, long interval);
     void stopAnnouncingPresence();

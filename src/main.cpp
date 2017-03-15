@@ -15,35 +15,46 @@ int mqttPort = 1883;
 
 MqttIO mailbox(mqttServer, mqttPort);
 
+void forwards(Dequeue<int> d) {
+  Serial.println("");
+  Serial.printf("Forwards: size %d - ", d.size());
+  d.traverseForwards([=](int item) {
+    Serial.printf("%d ", item);
+  });
+  Serial.println("");
+}
+
+void backwards(Dequeue<int> d) {
+  Serial.println("");
+  Serial.printf("Backwards: size %d - ", d.size());
+  d.traverseBackwards([=](int item) {
+    Serial.printf("%d ", item);
+  });
+  Serial.println("");
+}
 
 void runTests() {
   Dequeue<int> d;
-  d.size();
-  d.pushFront(5);
-  d.pushFront(4);
-  d.pushFront(3);
-  d.pushFront(2);
+
   d.pushFront(1);
-  d.pushFront(0);
+  forwards(d);
 
-  d.pushBack(6);
-  d.pushBack(7);
-  d.pushBack(8);
+  Serial.printf("Remove %d\n", d.popBack());
 
-  Serial.println("");
-  Serial.println("Forwards");
-  d.traverseForwards([=](int item) {
-    Serial.printf("Item %d\n", item);
-  });
-
-  Serial.println("");
-  Serial.println("Backwards");
-  d.traverseBackwards([=](int item) {
-    Serial.printf("Item %d\n", item);
-  });
+  d.pushFront(2);
+  forwards(d);
 }
 
+int ledPin = 16; // D0
+int buttonPin = 5; // D1
+int triggerPin = 14; // D5
+int echoPin = 12; // D6
+
 void setup() {
+
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, HIGH);
+
   Serial.begin(115200);
   Serial.println("Serial is connected");
 
@@ -60,9 +71,39 @@ void setup() {
   Serial.println(deviceId);
 
   mailbox.beginAnnouncingPresence("presence", deviceId.c_str(), 30000);
+ 
+  mailbox.inbox->pushFront(Message("commands", "measure"));
 }
 
 void loop() {
+
+  if(mailbox.hasMessages()) {
+    Message m = mailbox.receive();
+    if(strcmp(m.topic, "commands") == 0) { 
+      Serial.println("COMMAND:");
+
+      if(strcmp(m.payload, "measure") == 0) {
+        // measure and report back the distance
+        Serial.println("MEASURE DISTANCE");
+      } else if(strcmp(m.payload, "open") == 0) {
+        // measure - if the distance indicates a closed door (is large) 
+        // then pulse the relay
+        Serial.println("OPEN");
+        digitalWrite(ledPin, LOW);
+      } else if(strcmp(m.payload, "close") == 0) {
+        // measure - if the distance indicates an open door (is small) 
+        // then pulse the relay
+        Serial.println("CLOSE");
+        digitalWrite(ledPin, HIGH);
+      } else if(strcmp(m.payload, "force") == 0) {
+        // pulse the relay regardless of distance - don't even bother measuring
+        Serial.println("FORCE");
+      }
+    }
+    //TODO: Add logic to pass in configurations:
+    //  configure openDistance X - consider the door open if distance is <= X
+    Serial.println("");
+  }
   mailbox.loop();
 }
 
