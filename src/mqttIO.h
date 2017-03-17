@@ -2,13 +2,7 @@
 #define __MQTTIO_H_INCLUDED__
 
 #include <ESP8266WiFi.h>
-
-#include <DNSServer.h>
-#include <ESP8266WebServer.h>
-#include <WiFiManager.h>
-
 #include <PubSubClient.h>
-
 
 template <class T>
 class Dequeue {
@@ -180,12 +174,13 @@ class MqttIO {
 
     void announcePresence();
 
+    Dequeue<Message>* inbox;
     void handleMessage(char* topic, byte* payload, unsigned int length); 
 
   public:
 
-    Dequeue<Message>* inbox;
     MqttIO(const char* host, int port) {
+      Serial.printf("MqttIO(%s, %d)\n", host, port);
       inbox = new Dequeue<Message>();
       client = new PubSubClient(espClient);
       client->setServer(host, port);

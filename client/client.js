@@ -20,6 +20,7 @@ var rl = readline.createInterface({
 function handleCommand(command) {
   if(command === 'quit') {
     rl.close();
+    client.end();
     console.log('Bye');
     return;
   } else if(command) {

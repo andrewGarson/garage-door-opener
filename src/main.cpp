@@ -4,56 +4,70 @@
 
 #include <ESP.h>
 #include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 
 #include "mqttIO.h"
 
+// Constants or nearly so
 String deviceType = "garageController";
 String deviceId = "";
 
+unsigned long openThreshold = 10; //cm
+unsigned long measurementTimeout = 1000; //ms
 const char*  mqttServer = "192.168.1.2";
 int mqttPort = 1883;
 
-MqttIO mailbox(mqttServer, mqttPort);
-
-void forwards(Dequeue<int> d) {
-  Serial.println("");
-  Serial.printf("Forwards: size %d - ", d.size());
-  d.traverseForwards([=](int item) {
-    Serial.printf("%d ", item);
-  });
-  Serial.println("");
-}
-
-void backwards(Dequeue<int> d) {
-  Serial.println("");
-  Serial.printf("Backwards: size %d - ", d.size());
-  d.traverseBackwards([=](int item) {
-    Serial.printf("%d ", item);
-  });
-  Serial.println("");
-}
-
-void runTests() {
-  Dequeue<int> d;
-
-  d.pushFront(1);
-  forwards(d);
-
-  Serial.printf("Remove %d\n", d.popBack());
-
-  d.pushFront(2);
-  forwards(d);
-}
+MqttIO *mailbox = NULL; 
 
 int ledPin = 16; // D0
 int buttonPin = 5; // D1
 int triggerPin = 14; // D5
 int echoPin = 12; // D6
 
+enum State {
+  AwaitingCommand,
+  Measuring,
+  ProcessMeasurement,
+  CycleRelay
+};
+
+enum Command {
+  NONE,
+  Measure,
+  Open,
+  Close,
+  Force
+};
+
+// State tracking
+unsigned long triggerSentAt = 0;
+volatile unsigned long echoStart = 0;
+volatile unsigned long echoEnd = 0;
+
+State currentState = AwaitingCommand;
+Command currentCommand = NONE;
+
+// function declarations
+bool readCommand();
+void sendTrigger();
+void startRecordingEcho();
+void endRecordingEcho();
+void cycleRelay();
+
+void transitionToAwaitingCommand();
+void transitionToMeasuring();
+void transitionToProcessMeasurement();
+void transitionToCycleRelay();
+
 void setup() {
 
   pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, HIGH);
+  pinMode(triggerPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  digitalWrite(ledPin, HIGH); // start LED off 
 
   Serial.begin(115200);
   Serial.println("Serial is connected");
@@ -61,237 +75,144 @@ void setup() {
   Serial.print("SDK Version: ");
   Serial.println(ESP.getSdkVersion());
 
-  runTests();
-
   WiFiManager wifiManager;
   wifiManager.autoConnect("GarageOpenerAP", "thisisthepassword");
 
   deviceId = WiFi.macAddress() + " " + deviceType;
-  Serial.print("Connected,  ");
-  Serial.println(deviceId);
+  Serial.printf("Connected, %s\n", deviceId.c_str());
 
-  mailbox.beginAnnouncingPresence("presence", deviceId.c_str(), 30000);
- 
-  mailbox.inbox->pushFront(Message("commands", "measure"));
+  mailbox = new MqttIO(mqttServer, mqttPort);
+
+  mailbox->beginAnnouncingPresence("presence", deviceId.c_str(), 30000);
 }
 
 void loop() {
 
-  if(mailbox.hasMessages()) {
-    Message m = mailbox.receive();
-    if(strcmp(m.topic, "commands") == 0) { 
-      Serial.println("COMMAND:");
-
-      if(strcmp(m.payload, "measure") == 0) {
-        // measure and report back the distance
-        Serial.println("MEASURE DISTANCE");
-      } else if(strcmp(m.payload, "open") == 0) {
-        // measure - if the distance indicates a closed door (is large) 
-        // then pulse the relay
-        Serial.println("OPEN");
-        digitalWrite(ledPin, LOW);
-      } else if(strcmp(m.payload, "close") == 0) {
-        // measure - if the distance indicates an open door (is small) 
-        // then pulse the relay
-        Serial.println("CLOSE");
-        digitalWrite(ledPin, HIGH);
-      } else if(strcmp(m.payload, "force") == 0) {
-        // pulse the relay regardless of distance - don't even bother measuring
-        Serial.println("FORCE");
+  mailbox->loop();
+  // TODO: we need to only allow open/close/force to happen every 30s or so, gotta
+  // give the door time to move
+  switch(currentState) {
+    case AwaitingCommand: 
+      {
+        if(readCommand()) {
+          if(currentCommand == Measure || currentCommand == Open || currentCommand == Close ) {
+            transitionToMeasuring(); } else if(currentCommand == Force) {
+            transitionToCycleRelay();
+          }
+        }
       }
-    }
-    //TODO: Add logic to pass in configurations:
-    //  configure openDistance X - consider the door open if distance is <= X
-    Serial.println("");
+      break;
+    case Measuring:
+      {
+        if(triggerSentAt == 0) { // we have just transitioned into this state
+          sendTrigger();
+        } else if(echoEnd > 0) { // we have received the echo completely
+          transitionToProcessMeasurement();
+        } else if((millis() - triggerSentAt) > measurementTimeout) {
+          // it took too long to get a response, so we are giving up and assuming
+          // that no respose will come, clear the interrupt just in case
+          detachInterrupt(digitalPinToInterrupt(echoPin));
+          transitionToAwaitingCommand();
+        }
+      }
+      break;
+    case ProcessMeasurement:
+      {
+        unsigned long distance = (echoEnd - echoStart) / 58;
+        String message = "measured ";
+        message.concat(distance);
+        Serial.printf("Distance measured: %d centimeters\n", distance);
+        mailbox->send(deviceId.c_str(), message.c_str());
+
+        if(currentCommand == Open && distance <= openThreshold) {
+          transitionToCycleRelay();
+        } else if(currentCommand == Close && distance > openThreshold) {
+          transitionToCycleRelay();
+        } else {
+          transitionToAwaitingCommand();
+        }
+      }
+      break;
+    case CycleRelay:
+      {
+        cycleRelay();
+        transitionToAwaitingCommand();
+      }
+      break;
   }
-  mailbox.loop();
 }
 
-///////long debounceMicros = 50000;
-///////volatile unsigned long lastButtonUp = 0;
-///////
-///////volatile unsigned long echoStart = 0;
-///////volatile unsigned long echoEnd = 0;
-///////
-///////int ledPin = 16; // D0
-///////int buttonPin = 5; // D1
-///////int triggerPin = 14; // D5
-///////int echoPin = 12; // D6
-///////
-///////char network[] = "Ansible";
-///////char password[] = "jk4m3lD6jk4m3";
-///////int wifiStatus = WL_IDLE_STATUS; 
-///////
-///////uint8_t lineBuffer[128];
-///////uint8_t bytesRead = 0;
-///////uint8_t digest[20];
-///////
-///////Discovery discovery;
-///////
-///////WiFiServer server(23);
-///////
-////////*
-///////   void triggerSensor() {
-///////   if((long)(micros() - lastButtonUp) >= debounceMicros) {
-///////   sendTrigger();
-///////   attachInterrupt(digitalPinToInterrupt(buttonPin), endTriggerSensor, RISING);
-///////   }
-///////   }
-///////
-///////   void endTriggerSensor() {
-///////   if((long)(micros() - lastButtonUp) >= debounceMicros) {
-///////   lastButtonUp = micros();
-///////   attachInterrupt(digitalPinToInterrupt(buttonPin), triggerSensor, RISING);
-///////   }
-///////   }
-///////   */
-///////
-///////void endRecordingEcho() {
-///////  echoEnd = micros();
-///////  Serial.printf("Echo lasted from %d to %d\n", echoStart, echoEnd);
-///////  Serial.printf("Echo lasted %d microseconds\n", echoEnd - echoStart);
-///////  Serial.printf("Distance measured: %d centimeters\n", (echoEnd - echoStart)/58);
-///////  Serial.println();
-///////}
-///////
-///////void startRecordingEcho() {
-///////  echoStart = micros();
-///////  attachInterrupt(digitalPinToInterrupt(echoPin), endRecordingEcho, FALLING);
-///////}
-///////
-///////void sendTrigger() {
-///////  Serial.printf("Sending trigger at %d\n", millis());
-///////  attachInterrupt(digitalPinToInterrupt(echoPin), startRecordingEcho, RISING);
-///////  digitalWrite(triggerPin, HIGH);
-///////  delayMicroseconds(10);
-///////  digitalWrite(triggerPin, LOW);
-///////}
-///////
-///////void writeDigestToClient(WiFiClient& client, const uint8_t (& digest)[20]) {
-///////  for(uint8_t i = 0; i < 20; i++) {
-///////    if (digest[i]<0x10) {client.print("0");}
-///////    client.print(digest[i], HEX);
-///////  }
-///////  client.write('\n');
-///////}
-///////
-////////*
-/////// Our key is static and keysize == blocksize, so we don't need to pad or hash it
-/////// o_key_pad = [0x5c * blocksize] ⊕ key // Where blocksize is that of the underlying hash function
-/////// i_key_pad = [0x36 * blocksize] ⊕ key // Where ⊕ is exclusive or (XOR)
-/////// return hash(o_key_pad ∥ hash(i_key_pad ∥ message)) // Where ∥ is concatenation
-///////*/
-/////////void hmac_sha1(uint8_t * message, uint8_t messageLength, uint8_t digest[20]) {
-/////////  // i_key_pad = (i_key_pad | message)
-/////////  uint8_t i = 0;
-/////////  for(; i < messageLength; i++) {
-/////////    i_key_pad[64 + i] = message[i];
-/////////  }
-/////////  // digest = hash(i_key_pad | message)
-/////////  sha1(i_key_pad, messageLength + 64 - 1, digest);
-/////////
-/////////  // o_key_pad = (o_key_pad | hash(i_key_pad | message))
-/////////  i=0;
-/////////  for(;i < 64; i++) {
-/////////    o_key_pad[64 + i] = digest[i];
-/////////  }
-/////////  // digest = hash(o_key_pad | hash(i_key_pad | message))
-/////////  sha1(o_key_pad, 84, digest);
-/////////}
-///////
-///////
-///////void setup() {
-///////  Serial.begin(115200);
-///////  Serial.println("Serial is connected");
-///////
-///////  Serial.print("SDK Version: ");
-///////  Serial.println(ESP.getSdkVersion());
-///////
-///////  WiFi.mode(WIFI_STA);
-///////  WiFi.begin(network, password);
-///////  WiFi.printDiag(Serial);
-///////
-///////  while ( wifiStatus != WL_CONNECTED) {
-///////    Serial.print("Attempting to connect to network: ");
-///////    Serial.println(network);
-///////    wifiStatus = WiFi.status();
-///////    delay(5000);
-///////  }
-///////
-///////  Serial.print("Local IP: ");
-///////  Serial.println(WiFi.localIP());
-///////
-///////  server.begin();
-///////
-///////  pinMode(ledPin, OUTPUT);
-///////  digitalWrite(ledPin, HIGH);
-///////  //  pinMode(buttonPin, INPUT_PULLUP);
-///////  pinMode(triggerPin, OUTPUT);
-///////  pinMode(echoPin, INPUT);
-///////
-///////  //attachInterrupt(digitalPinToInterrupt(buttonPin), triggerSensor, FALLING);
-///////}
-///////
-///////
-///////void loop() {
-///////  //discovery.broadcast(WiFi.localIP());
-///////  //delay(3000);
-///////  //return;
-///////
-///////  WiFiClient client = server.available();
-///////
-///////  if(client) {
-///////    Serial.write("Client Connected\n");
-///////    client.write("HELLO\n");
-///////    CommandProcessor commandProcessor(client);
-///////
-///////    while(client.connected()) {
-///////      Command command = commandProcessor.readCommand(Serial);
-///////      switch(command) {
-///////        case Command::PARSE_ERROR:
-///////        case Command::READ_TIMEOUT:
-///////        case Command::BUFFER_FULL:
-///////          Serial.print("Read Command Failed: ");
-///////          Serial.println(command);
-///////          client.stop();
-///////          break;
-///////        case Command::OPEN:
-///////          Serial.println("OPEN");
-///////          digitalWrite(ledPin, LOW);
-///////          client.stop();
-///////          break;
-///////        case Command::CLOSE:
-///////          Serial.println("CLOSE");
-///////          digitalWrite(ledPin, HIGH);
-///////          client.stop();
-///////          break;
-///////        case Command::READ_SENSOR:
-///////          Serial.println("READ");
-///////          client.stop();
-///////          break;
-///////        default:
-///////          Serial.println("Default");
-///////          //hmac_sha1(lineBuffer, bytesRead, digest);
-///////
-///////          for(uint8_t x = 0; x < bytesRead; x++) { Serial.write(lineBuffer[x]); }
-///////          Serial.println();
-///////
-///////          writeDigestToClient(client, digest);
-///////
-///////          if(bytesRead >= 4 && 
-///////              lineBuffer[0] == 'e' && lineBuffer[1] == 'x' && lineBuffer[2] == 'i' && lineBuffer[3] == 't') {
-///////            client.write("GOODBYE\n");
-///////            client.flush();
-///////            client.stop();
-///////          }
-///////          break;
-///////      }
-///////      delay(0); // yield to other processes on the board
-///////    }
-///////    Serial.println("Client disconnected");
-///////  }
-///////  //sendTrigger();
-///////  //delay(1000);
-///////}
+bool readCommand() {
+  if(mailbox->hasMessages()) {
+    Serial.println("Reading Message");
+    Message m = mailbox->receive();
+    if(strcmp(m.payload, "measure") == 0) {
+      currentCommand = Measure;
+    } else if(strcmp(m.payload, "open") == 0) {
+      currentCommand = Open;
+    } else if(strcmp(m.payload, "close") == 0) {
+      currentCommand = Close;
+    } else if(strcmp(m.payload, "force") == 0) {
+      currentCommand = Force;
+    } else {
+      currentCommand = NONE;
+    }
+    return true;
+  }
+  return false;
+}
+
+void transitionToMeasuring() {
+  Serial.println("Transition to Measuring");
+  currentState = Measuring;
+  triggerSentAt = 0;
+  echoStart = 0;
+  echoEnd = 0;
+}
+
+void transitionToProcessMeasurement() { 
+  Serial.println("Transition to ProcessMeasurement");
+  currentState = ProcessMeasurement;
+}
+
+void transitionToCycleRelay() { 
+  Serial.println("Transition to CycleRelay");
+  currentState = CycleRelay;
+} 
+
+void transitionToAwaitingCommand() {
+  Serial.println("Transition to AwaitingCommand");
+  currentState = AwaitingCommand;
+  currentCommand = NONE;
+}
+
+void sendTrigger() {
+  Serial.println("Send Trigger");
+  // when we are in Measuring mode, we will send a trigger if triggerSentAt is 0
+  // so we need to set it here to prevent an infinite loop
+  triggerSentAt = millis(); 
+  attachInterrupt(digitalPinToInterrupt(echoPin), startRecordingEcho, RISING);
+  digitalWrite(triggerPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(triggerPin, LOW);
+}
+
+void startRecordingEcho() {
+  echoStart = micros();
+  attachInterrupt(digitalPinToInterrupt(echoPin), endRecordingEcho, FALLING);
+}
+
+void endRecordingEcho() {
+  echoEnd = micros();
+  Serial.println("Echo End");
+}
+
+void cycleRelay(){
+  Serial.println("OPEN");
+  digitalWrite(ledPin, LOW);
+  delayMicroseconds(500000); // 1/2 second
+  Serial.println("CLOSE");
+  digitalWrite(ledPin, HIGH);
+}
 
 

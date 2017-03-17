@@ -17,6 +17,8 @@ boolean MqttIO::reconnect() {
   if(client->connect("arduinoClient")){
     client->publish("presence", "arduinoClient");
     client->subscribe("commands");
+  } else {
+    Serial.printf("Client->state(): %d\n", client->state());
   }
   return client->connected();
 }
