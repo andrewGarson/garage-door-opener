@@ -22,7 +22,7 @@ int mqttPort = 1883;
 MqttIO *mailbox = NULL; 
 
 int ledPin = 16; // D0
-int buttonPin = 5; // D1
+int relayPin = 5; // D1
 int triggerPin = 14; // D5
 int echoPin = 12; // D6
 
@@ -64,10 +64,12 @@ void transitionToCycleRelay();
 void setup() {
 
   pinMode(ledPin, OUTPUT);
+  pinMode(relayPin, OUTPUT);
   pinMode(triggerPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
-  digitalWrite(ledPin, HIGH); // start LED off 
+  digitalWrite(ledPin, HIGH); // start LED off -- pull down resistor
+  digitalWrite(relayPin, LOW); // start relay off
 
   Serial.begin(115200);
   Serial.println("Serial is connected");
@@ -181,7 +183,7 @@ void transitionToCycleRelay() {
 } 
 
 void transitionToAwaitingCommand() {
-  Serial.println("Transition to AwaitingCommand");
+  Serial.println("Transition to AwaitingCommand\n\n");
   currentState = AwaitingCommand;
   currentCommand = NONE;
 }
@@ -210,9 +212,11 @@ void endRecordingEcho() {
 void cycleRelay(){
   Serial.println("OPEN");
   digitalWrite(ledPin, LOW);
+  digitalWrite(relayPin, HIGH);
   delayMicroseconds(500000); // 1/2 second
   Serial.println("CLOSE");
   digitalWrite(ledPin, HIGH);
+  digitalWrite(relayPin, LOW);
 }
 
 
