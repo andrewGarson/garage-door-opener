@@ -1,6 +1,6 @@
 const readline = require('readline');
 const mqtt = require('mqtt');
-const client = mqtt.connect('mqtt://192.168.1.2');
+const client = mqtt.connect('mqtt://192.168.1.22');
 
 client.on('connect', function() {
   console.log('connected');

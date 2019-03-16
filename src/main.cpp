@@ -12,11 +12,11 @@
 
 // Constants or nearly so
 String deviceType = "garageController";
-String deviceId = "";
+String deviceId = "garage";
 
-unsigned long openThreshold = 10; //cm
+unsigned long openThreshold = 30; //cm
 unsigned long measurementTimeout = 1000; //ms
-const char*  mqttServer = "192.168.1.2";
+const char*  mqttServer = "192.168.1.22";
 int mqttPort = 1883;
 
 MqttIO *mailbox = NULL; 
@@ -98,7 +98,8 @@ void loop() {
       {
         if(readCommand()) {
           if(currentCommand == Measure || currentCommand == Open || currentCommand == Close ) {
-            transitionToMeasuring(); } else if(currentCommand == Force) {
+            transitionToMeasuring(); 
+          } else if(currentCommand == Force) {
             transitionToCycleRelay();
           }
         }
@@ -126,9 +127,9 @@ void loop() {
         Serial.printf("Distance measured: %d centimeters\n", distance);
         mailbox->send(deviceId.c_str(), message.c_str());
 
-        if(currentCommand == Open && distance <= openThreshold) {
+        if(currentCommand == Open && distance >= openThreshold) {
           transitionToCycleRelay();
-        } else if(currentCommand == Close && distance > openThreshold) {
+        } else if(currentCommand == Close && distance < openThreshold) {
           transitionToCycleRelay();
         } else {
           transitionToAwaitingCommand();
